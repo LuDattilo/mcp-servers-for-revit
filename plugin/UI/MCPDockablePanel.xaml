@@ -146,7 +146,7 @@
                         <Border x:Name="ModelToggle" Grid.Column="2"
                                 CornerRadius="10" Padding="8,3" Margin="0,0,6,0"
                                 Background="#F5F4F2" BorderBrush="#E0DDD9" BorderThickness="1"
-                                Cursor="Hand" MouseLeftButtonDown="ModelToggle_Click">
+                                Cursor="Hand" MouseLeftButtonUp="ModelToggle_Click">
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                 <TextBlock x:Name="ModelLabel" Text="Sonnet 4.6" FontSize="10"
                                            Foreground="#666" VerticalAlignment="Center"/>

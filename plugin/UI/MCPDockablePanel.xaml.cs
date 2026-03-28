@@ -1,20 +1,20 @@
 using System;
-using System.IO;
+using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
-using Microsoft.Web.WebView2.Core;
 
 namespace revit_mcp_plugin.UI
 {
     public partial class MCPDockablePanel : Page
     {
         private static MCPDockablePanel _instance;
+        private readonly ObservableCollection<ChatMessage> _messages = new ObservableCollection<ChatMessage>();
         private readonly DispatcherTimer _statusTimer;
-        private bool _isWebViewInitialized;
-
-        private const string CLAUDE_URL = "https://claude.ai/new";
+        private readonly ClaudeRevitClient _client;
+        private bool _isProcessing;
 
         public static MCPDockablePanel Instance => _instance;
 
@@ -22,60 +22,25 @@ namespace revit_mcp_plugin.UI
         {
             InitializeComponent();
             _instance = this;
+            ChatMessages.ItemsSource = _messages;
+            _client = new ClaudeRevitClient();
 
             _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
             _statusTimer.Tick += (s, e) => UpdateStatus();
+
+            AddMessage("assistant", "Ciao! Sono Claude integrato in Revit.\n\nPosso eseguire comandi direttamente sul modello aperto. Prova:\n\n" +
+                "- \"Che progetto ho aperto?\"\n" +
+                "- \"Crea un livello MCP a 15000mm\"\n" +
+                "- \"Quanti elementi ci sono?\"\n" +
+                "- \"Mostra i warning del modello\"\n" +
+                "- \"Crea 4 muri a rettangolo\"");
         }
 
-        private async void Page_Loaded(object sender, RoutedEventArgs e)
+        private void Page_Loaded(object sender, RoutedEventArgs e)
         {
             _statusTimer.Start();
             UpdateStatus();
-
-            if (_isWebViewInitialized) return;
-
-            try
-            {
-                // Use a persistent user data folder so login session is saved
-                string userDataFolder = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "RevitMCP", "WebView2");
-
-                Directory.CreateDirectory(userDataFolder);
-
-                var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
-                await WebBrowser.EnsureCoreWebView2Async(env);
-
-                _isWebViewInitialized = true;
-
-                // Configure WebView2
-                WebBrowser.CoreWebView2.Settings.IsStatusBarEnabled = false;
-                WebBrowser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
-                WebBrowser.CoreWebView2.Settings.IsZoomControlEnabled = true;
-
-                // Navigate to Claude
-                WebBrowser.CoreWebView2.Navigate(CLAUDE_URL);
-
-                // Hide loading overlay when navigation completes
-                WebBrowser.CoreWebView2.NavigationCompleted += (s2, e2) =>
-                {
-                    Dispatcher.BeginInvoke(new Action(() =>
-                    {
-                        LoadingOverlay.Visibility = Visibility.Collapsed;
-                    }));
-                };
-            }
-            catch (Exception ex)
-            {
-                LoadingOverlay.Visibility = Visibility.Visible;
-                var stack = (LoadingOverlay.Child as StackPanel);
-                if (stack != null && stack.Children.Count >= 2)
-                {
-                    (stack.Children[0] as System.Windows.Controls.TextBlock).Text = "WebView2 Error";
-                    (stack.Children[1] as System.Windows.Controls.TextBlock).Text =
-                        $"Install WebView2 Runtime from Microsoft.\n{ex.Message}";
-                }
-            }
+            ChatInput.Focus();
         }
 
         private void UpdateStatus()
@@ -92,28 +57,129 @@ namespace revit_mcp_plugin.UI
             catch { }
         }
 
-        private void GoHome_Click(object sender, RoutedEventArgs e)
+        private void ChatInput_KeyDown(object sender, KeyEventArgs e)
         {
-            if (_isWebViewInitialized)
+            if (e.Key == Key.Enter && !_isProcessing)
             {
-                WebBrowser.CoreWebView2.Navigate(CLAUDE_URL);
+                Send_Click(sender, e);
+                e.Handled = true;
             }
         }
 
-        private void Reload_Click(object sender, RoutedEventArgs e)
+        private async void Send_Click(object sender, RoutedEventArgs e)
         {
-            if (_isWebViewInitialized)
+            string input = ChatInput.Text?.Trim();
+            if (string.IsNullOrEmpty(input) || _isProcessing) return;
+
+            ChatInput.Text = "";
+            AddMessage("user", input);
+
+            _isProcessing = true;
+            SendButton.IsEnabled = false;
+            TypingIndicator.Visibility = Visibility.Visible;
+            TypingText.Text = "Claude sta pensando...";
+
+            try
             {
-                WebBrowser.CoreWebView2.Reload();
+                if (!Core.SocketService.Instance.IsRunning)
+                {
+                    AddMessage("assistant", "Il server MCP non e' attivo. Clicca 'Revit MCP Switch' nel ribbon per avviarlo, poi riprova.");
+                    return;
+                }
+
+                string response = await _client.SendMessage(input);
+                AddMessage("assistant", response);
+            }
+            catch (Exception ex)
+            {
+                AddMessage("assistant", $"Errore: {ex.Message}");
+            }
+            finally
+            {
+                _isProcessing = false;
+                SendButton.IsEnabled = true;
+                TypingIndicator.Visibility = Visibility.Collapsed;
             }
         }
 
-        /// <summary>
-        /// Log a command execution from SocketService (shows as notification)
-        /// </summary>
+        private void AddMessage(string role, string text)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                _messages.Add(new ChatMessage(role, text));
+                ChatScrollViewer.ScrollToEnd();
+            }));
+        }
+
+        public void OnToolExecuting(string toolName)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                TypingText.Text = $"Eseguo: {toolName}...";
+                _messages.Add(new ChatMessage("tool", $"[{toolName}]"));
+                ChatScrollViewer.ScrollToEnd();
+            }));
+        }
+
         public void LogCommand(string commandName, bool success, string message, double durationMs)
         {
-            // Could inject a JS notification into the page if needed
+            // Called from SocketService for external MCP calls
+        }
+
+        private void ClearChat_Click(object sender, MouseButtonEventArgs e)
+        {
+            _messages.Clear();
+            _client.ClearHistory();
+        }
+    }
+
+    public class ChatMessage
+    {
+        public string Role { get; }
+        public string Text { get; }
+        public string RoleLabel { get; }
+        public Thickness LabelMargin { get; }
+        public Thickness BubbleMargin { get; }
+        public string BubbleAlignment { get; }
+        public SolidColorBrush TextColor { get; }
+        public SolidColorBrush BubbleBackground { get; }
+        public FontFamily FontFamily { get; }
+
+        public ChatMessage(string role, string text)
+        {
+            Role = role;
+            Text = text;
+
+            switch (role)
+            {
+                case "user":
+                    RoleLabel = "Tu";
+                    LabelMargin = new Thickness(0, 2, 12, 0);
+                    BubbleMargin = new Thickness(50, 0, 8, 0);
+                    BubbleAlignment = "Right";
+                    TextColor = new SolidColorBrush(Color.FromRgb(224, 224, 240));
+                    BubbleBackground = new SolidColorBrush(Color.FromRgb(59, 59, 92));
+                    FontFamily = new FontFamily("Segoe UI");
+                    break;
+                case "tool":
+                    RoleLabel = "";
+                    LabelMargin = new Thickness(12, 2, 0, 0);
+                    BubbleMargin = new Thickness(8, 0, 50, 0);
+                    BubbleAlignment = "Left";
+                    TextColor = new SolidColorBrush(Color.FromRgb(100, 200, 120));
+                    BubbleBackground = new SolidColorBrush(Color.FromRgb(30, 42, 30));
+                    FontFamily = new FontFamily("Consolas");
+                    break;
+                default:
+                    RoleLabel = "Claude";
+                    LabelMargin = new Thickness(12, 2, 0, 0);
+                    BubbleMargin = new Thickness(8, 0, 50, 0);
+                    BubbleAlignment = "Left";
+                    TextColor = new SolidColorBrush(Color.FromRgb(200, 200, 220));
+                    BubbleBackground = new SolidColorBrush(Color.FromRgb(42, 42, 60));
+                    FontFamily = new FontFamily("Segoe UI");
+                    break;
+            }
         }
     }
 }

@@ -1,4 +1,4 @@
-[![Cover Image](./assets/cover.png?v=2)](https://github.com/mcp-servers-for-revit/mcp-servers-for-revit)
+[![Cover Image](./assets/cover.svg)](https://github.com/mcp-servers-for-revit/mcp-servers-for-revit)
 
 # mcp-servers-for-revit
 
@@ -135,7 +135,7 @@ The plugin loads automatically. Click **"Revit MCP Switch"** in the ribbon to st
 
 Il plugin si carica automaticamente. Clicca **"Revit MCP Switch"** nel ribbon per avviare il server TCP. Quando l'indicatore di stato diventa verde, la connessione e attiva.
 
-![Claude Desktop connection](./assets/claude.png)
+![Architecture](./assets/architecture.svg)
 
 ## Supported Revit Versions / Versioni Revit supportate
 

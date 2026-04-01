@@ -364,6 +364,65 @@ namespace revit_mcp_plugin.UI
             }
         }
 
+        private void ImportCommandSetButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var dialog = new Microsoft.Win32.OpenFileDialog
+                {
+                    Title = "Select a command.json file to import",
+                    Filter = "Command Set Definition (command.json)|command.json",
+                    FileName = "command.json"
+                };
+
+                if (dialog.ShowDialog() == true)
+                {
+                    string selectedFile = dialog.FileName;
+                    string sourceFolder = Path.GetDirectoryName(selectedFile);
+                    string commandSetFolderName = Path.GetFileName(sourceFolder);
+                    string commandsDirectory = PathManager.GetCommandsDirectoryPath();
+                    string destinationFolder = Path.Combine(commandsDirectory, commandSetFolderName);
+
+                    if (Directory.Exists(destinationFolder))
+                    {
+                        var result = MessageBox.Show(
+                            $"A command set '{commandSetFolderName}' already exists. Overwrite?",
+                            "Command Set Exists", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                        if (result != MessageBoxResult.Yes)
+                            return;
+                    }
+
+                    CopyDirectory(sourceFolder, destinationFolder);
+                    LoadCommandSets();
+
+                    MessageBox.Show($"Command set '{commandSetFolderName}' imported successfully!",
+                                  "Import Complete", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error importing command set: {ex.Message}", "Error",
+                              MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private static void CopyDirectory(string sourceDir, string destinationDir)
+        {
+            Directory.CreateDirectory(destinationDir);
+
+            foreach (string file in Directory.GetFiles(sourceDir))
+            {
+                string destFile = Path.Combine(destinationDir, Path.GetFileName(file));
+                File.Copy(file, destFile, true);
+            }
+
+            foreach (string dir in Directory.GetDirectories(sourceDir))
+            {
+                string destSubDir = Path.Combine(destinationDir, Path.GetFileName(dir));
+                CopyDirectory(dir, destSubDir);
+            }
+        }
+
         private void OpenFolderButton_Click(object sender, RoutedEventArgs e)
         {
             try

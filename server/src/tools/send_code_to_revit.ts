@@ -18,11 +18,18 @@ export function registerSendCodeToRevitTool(server: McpServer) {
         .describe(
           "Optional execution parameters that will be passed to your code"
         ),
+      transactionMode: z
+        .enum(["auto", "none"])
+        .default("auto")
+        .describe(
+          "Transaction mode: 'auto' (default) wraps code in a Revit Transaction; 'none' lets the code manage its own transactions"
+        ),
     },
     async (args, extra) => {
       const params = {
         code: args.code,
         parameters: args.parameters || [],
+        transactionMode: args.transactionMode,
       };
 
       try {
